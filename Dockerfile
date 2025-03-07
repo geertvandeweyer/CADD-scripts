@@ -45,9 +45,9 @@ RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/downloa
 
 # install cadd
 RUN cd /opt && \
-    git clone https://github.com/geertvandeweyer/CADD-scripts.git && \
+    git clone --branch Fix/max_memory https://github.com/geertvandeweyer/CADD-scripts.git && \
     cd CADD-scripts && \
-    snakemake test/input.tsv.gz \
+    snakemake test/input.vcf \
         --software-deployment-method conda \
         --conda-create-envs-only \
         --conda-prefix envs/conda \

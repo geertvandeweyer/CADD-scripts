@@ -16,6 +16,7 @@ where:
     -d  do not remove temporary directory for debug puroposes
     -t  specify location for temporary directory [default: /tmp/]
     -c  number of cores that snakemake is allowed to use [default: 1]
+    -M  maximum memory that snakemake is allowed to use [default: available memory]
     "
 
 unset OPTARG
@@ -43,7 +44,7 @@ else
     MEMORY="0"
 fi
 
-while getopts ':ho:g:v:c:amr:qpdt:' option; do
+while getopts ':ho:g:v:c:M:amr:qpdt:' option; do
   case "$option" in
     h) echo "$usage"
        exit
