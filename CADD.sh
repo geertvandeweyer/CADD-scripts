@@ -168,6 +168,7 @@ command="snakemake $TMP_OUTFILE \
     --resources load=100 \
     --sdm conda $SIGNULARITYARGS --conda-prefix $CADD/envs/conda \
     --cores $CORES --memory $MEMORY --configfile $CONFIG \
+    --config mem_gb=$MEMORY \
     --snakefile $CADD/Snakefile $VERBOSE"
 
 echo -e $command

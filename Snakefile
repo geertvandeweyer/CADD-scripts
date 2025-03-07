@@ -25,10 +25,10 @@ import os
 ###################################
 ## RULE SPECFIC THREADING LIMITS ##
 ###################################
-if workflow.memory == 0:
+if int(config.get("mem_gb",0)) == 0:
     system_memory = psutil.virtual_memory().total / (1024 ** 3)
 else:
-    system_memory = workflow.memory
+    system_memory = int(config["mem_gb"])
 try:
     lines = subprocess.check_output("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null", shell=True).decode('utf-8').splitlines()
     # sum over gpu(s)
