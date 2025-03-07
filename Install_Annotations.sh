@@ -13,7 +13,7 @@ TARGET=$1
 BUILD=$2
 
 # LOCATIONS:
-DOWNLOAD_LOCATION=https://kircherlab.bihealth.org/download/CADD
+DOWNLOAD_LOCATION=https://krishna.gs.washington.edu/download/CADD
 
 
 

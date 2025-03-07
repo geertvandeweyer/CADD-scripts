@@ -168,7 +168,7 @@ echo "Running snakemake pipeline:"
 command="snakemake $TMP_OUTFILE \
     --resources load=100 \
     --sdm conda $SIGNULARITYARGS --conda-prefix $CADD/envs/conda \
-    --cores $CORES --memory $MEMORY --configfile $CONFIG \
+    --cores $CORES --configfile $CONFIG \
     --config mem_gb=$MEMORY \
     --snakefile $CADD/Snakefile $VERBOSE"
 
