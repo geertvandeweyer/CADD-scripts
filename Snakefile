@@ -25,13 +25,16 @@ import os
 ###################################
 ## RULE SPECFIC THREADING LIMITS ##
 ###################################
-system_memory = psutil.virtual_memory().total / (1024 ** 3)
-gpu_memory = 0
+if workflow.memory == 0:
+    system_memory = psutil.virtual_memory().total / (1024 ** 3)
+else:
+    system_memory = workflow.memory
 try:
     lines = subprocess.check_output("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null", shell=True).decode('utf-8').splitlines()
     # sum over gpu(s)
     gpu_memory = int(sum([int(x) for x in lines])/1024)
 except Exception as e:
+    gpu_memory = 0
     pass
     
 # esm takes ~16 Gb of system memory per tread & 4 Gb of GPU ram (if available). 
@@ -43,11 +46,11 @@ if config['esm_slots'] < 1:
     config['esm_slots'] = 1
 # then assign other resources
 config['esm_load'] = 100 if config['esm_slots'] < 1 else int(100/config['esm_slots']) 
-config['esm_threads'] = int(workflow.cores /  config['esm_slots'])
+config['esm_threads'] = max(1, int(workflow.cores /  config['esm_slots']))
 config['vep_load'] = 100 if system_memory < 4 else int(100/int(0.9*system_memory / 4 ))  # up to 4Gb/ram
 config['regseq_load'] = 100 if system_memory < 2 else int(100/int(0.9*system_memory / 2 ))   # up to 2Gb of ram
 config['mms_load'] = 100 if system_memory < 16 else int(100/int(0.9*system_memory / 16 ))   # up to 16Gb/ram
-config['mms_threads'] = int(workflow.cores / (100/config['mms_load']))
+config['mms_threads'] = max(1, int(workflow.cores / (100/config['mms_load'])))
 config['anno_load'] = 1 # disk IO intensive
 config['impute_load'] = 1 
 config['prescore_load'] = 1 

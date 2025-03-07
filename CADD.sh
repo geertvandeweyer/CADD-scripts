@@ -31,7 +31,18 @@ SIGNULARITYARGS=""
 VERBOSE="-q"
 CORES="1"
 RM_TMP_DIR=true
-TMP_PREFIX="/tmp"
+# set memory to available memory by default (can be lower than system memory in docker containers):
+if [[ -f "/sys/fs/cgroup/memory/memory.limit_in_bytes" ]]; then
+    MEMORY=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    MEMORY=$((MEMORY / 1024 / 1024 / 1024))
+elif [[ -f "/sys/fs/cgroup/memory.max" ]]; then
+    MEMORY=$(cat /sys/fs/cgroup/memory.max)
+    MEMORY=$((MEMORY / 1024 / 1024 / 1024))
+else
+    # if files are not available, determine in snakemake
+    MEMORY="0"
+fi
+
 while getopts ':ho:g:v:c:amr:qpdt:' option; do
   case "$option" in
     h) echo "$usage"
@@ -44,6 +55,8 @@ while getopts ':ho:g:v:c:amr:qpdt:' option; do
     v) VERSION=$OPTARG
        ;;
     c) CORES=$OPTARG
+       ;;
+    M) MAXMEMORY=$OPTARG
        ;;
     a) ANNOTATION=true
        ;;
@@ -154,7 +167,7 @@ echo "Running snakemake pipeline:"
 command="snakemake $TMP_OUTFILE \
     --resources load=100 \
     --sdm conda $SIGNULARITYARGS --conda-prefix $CADD/envs/conda \
-    --cores $CORES --configfile $CONFIG \
+    --cores $CORES --memory $MEMORY --configfile $CONFIG \
     --snakefile $CADD/Snakefile $VERBOSE"
 
 echo -e $command
