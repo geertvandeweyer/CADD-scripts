@@ -168,17 +168,22 @@ checkpoint prescore:
         """
         # Prescoring
         echo '## Prescored variant file' > {output.prescored} 2> {log};
+        # are prescored files available?
         PRESCORED_FILES=`find -L {input.prescored} -maxdepth 1 -type f -name \\*.tsv.gz | wc -l`
         cp {input.vcf} {input.vcf}.new
         if [ ${{PRESCORED_FILES}} -gt 0 ];
         then
+            # loop over all prescored files: snv , indel, ... 
             for PRESCORED in $(ls {input.prescored}/*.tsv.gz)
             do
+                # extract writes found to outfile, not-found to stdout
                 cat {input.vcf}.new \
                 | python {params.cadd}/src/scripts/extract_scored.py --header \
                     -p $PRESCORED --found_out={output.prescored}.tmp \
                 > {input.vcf}.tmp 2>> {log};
+                # get prescored to the outfile
                 cat {output.prescored}.tmp >> {output.prescored}
+                # put not-found back to the input
                 mv {input.vcf}.tmp {input.vcf}.new &> {log};
             done;
             rm {output.prescored}.tmp &>> {log}
@@ -311,23 +316,40 @@ rule annotate_mmsplice:
         reference="%s/reference.fa" % config.get("REFERENCEpath", ""),
     output:
         mmsplice="{file}_splits/chunk_{chunk}.mmsplice.vcf.gz",
+        # needed ? 
         idx="{file}_splits/chunk_{chunk}.regseq.vcf.gz.tbi",
     log:
         "{file}.chunk_{chunk}.annotate_mmsplice.log",
     params:
         cadd=os.environ["CADD"],
+        mms_threads=config['mms_threads']  # Assigning the number of threads for mmsplice
     resources:
         load=int(config['mms_load']),
     threads: 
         config['mms_threads'],
     shell:
         """
-        tabix -p vcf {input.vcf} &> {log};
-        KERAS_BACKEND=tensorflow python {params.cadd}/src/scripts/lib/tools/MMSplice.py -i {input.vcf} \
-        -g {input.transcripts} \
-        -f {input.reference} | \
-        grep -v '^Variant(CHROM=' | \
-        bgzip -c > {output.mmsplice} 2>> {log}
+        # mmsplice crashes on empty vcf files: evaluate nr of variants left
+        LC=$(bgzip -dc {input.vcf} | grep -c -v '#' || true)
+        bgzip -dc {input.vcf} > /dev/null
+        echo "nr of lines: "
+        if [[ "$LC" -eq 0 ]]; then
+            echo "Empty VCF file, skipping mmsplice annotation." >> {log}
+            tabix -p vcf {input.vcf} &>> {log};
+            cp {input.vcf} {output.mmsplice}
+        else 
+            # set parallelism for tensorflow : 
+            export OMP_NUM_THREADS={params.mms_threads}
+            export TF_NUM_INTRAOP_THREADS={params.mms_threads}
+            export TF_NUM_INTEROP_THREADS=1
+            # annotate
+            tabix -p vcf {input.vcf} &> {log};
+            KERAS_BACKEND=tensorflow python {params.cadd}/src/scripts/lib/tools/MMSplice.py -i {input.vcf} \
+            -g {input.transcripts} \
+            -f {input.reference} | \
+            grep -v '^Variant(CHROM=' | \
+            bgzip -c > {output.mmsplice} 2>> {log}
+        fi
         """
 
 
