@@ -33,47 +33,64 @@ try:
     lines = subprocess.check_output("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null", shell=True).decode('utf-8').splitlines()
     # sum over gpu(s)
     gpu_memory = int(sum([int(x) for x in lines])/1024)
+    # nr of gpus
+    gpu_count = len(lines)
 except Exception as e:
     gpu_memory = 0
+    gpu_count = 0
     pass
-    
-# esm takes ~16 Gb of system memory per tread & 4 Gb of GPU ram (if available). 
-if gpu_memory > 0:
-    config['esm_slots'] = int(min((0.9*system_memory)/16, 0.95*gpu_memory/4))
+
+###############
+## GPU TASKS ##
+###############
+# esm takes ~16 Gb of system memory per tread & 14 Gb of GPU ram (if available). 
+# if gpu is available, we can use it for esm : one thread per gpu.
+if gpu_count > 0:
+    config['esm_cpu_slots'] = int(max(1,(0.9*system_memory)/16))
+    config['esm_gpu_slots'] = int(0.9*gpu_memory/14)
 else:
-    config['esm_slots'] = int(0.9*system_memory / 16)
-if config['esm_slots'] < 1:
-    config['esm_slots'] = 1
+    config['esm_cpu_slots'] = int(max(1,0.9*system_memory / 16))
+    config['esm_gpu_slots'] = 0
+config['esm_cpu_load'] = int(100/config['esm_cpu_slots']) 
+config['esm_gpu_load'] = 100 if config['esm_gpu_slots'] < 1 else int(100/config['esm_gpu_slots'])
+config['esm_cpu_threads'] = max(1, int(workflow.cores /  config['esm_cpu_slots']))
+
+###############
+## CPU TASKS ##
+###############
 # then assign other resources
-config['esm_load'] = 100 if config['esm_slots'] < 1 else int(100/config['esm_slots']) 
-config['esm_threads'] = max(1, int(workflow.cores /  config['esm_slots']))
-config['vep_load'] = 100 if system_memory < 4 else int(100/int(0.9*system_memory / 4 ))  # up to 4Gb/ram
-config['regseq_load'] = 100 if system_memory < 2 else int(100/int(0.9*system_memory / 2 ))   # up to 2Gb of ram
-config['mms_load'] = 100 if system_memory < 16 else int(100/int(0.9*system_memory / 16 ))   # up to 16Gb/ram
-config['mms_threads'] = max(1, int(workflow.cores / (100/config['mms_load'])))
-config['anno_load'] = 1 # disk IO intensive
-config['impute_load'] = 1 
-config['prescore_load'] = 1 
-config['score_load'] = 1
+config['vep_cpu_load'] = 100 if system_memory < 4 else int(100/int(0.9*system_memory / 4 ))  # up to 4Gb/ram
+config['vep_cpu_threads'] = max(1, int(workflow.cores / (100/config['vep_cpu_load'])))
+config['regseq_cpu_load'] = 100 if system_memory < 2 else int(100/int(0.9*system_memory / 2 ))   # up to 2Gb of ram
+config['mms_cpu_load'] = 100 if system_memory < 16 else int(100/int(0.9*system_memory / 16 ))   # up to 16Gb/ram
+config['mms_cpu_threads'] = max(1, int(workflow.cores / (100/config['mms_cpu_load'])))
+config['anno_cpu_load'] = 1 # disk IO intensive
+config['impute_cpu_load'] = 1 
+config['prescore_cpu_load'] = 10  # disk IO intensive 
+config['score_cpu_load'] = 1
 
-print("Threading Overview",flush=True)
-print("##################",flush=True)
-print("Assigned cores: {}".format(workflow.cores),flush=True)
-print("Available system memory: {}GB".format(int(system_memory)),flush=True)
+print("Threading Overview")
+print("##################")
+print("Assigned cores: {}".format(workflow.cores))
+print("Available system memory: {}GB".format(int(system_memory)))
 if gpu_memory > 0:
-   print("Total GPU memory: {}GB".format(gpu_memory),flush=True)
+   print("Total GPU memory: {}GB".format(gpu_memory))
 else:
-   print("No gpu found",flush=True)
-print("Task Parallelization: ",flush=True)
-print("  PreScore : {}x".format(min(workflow.cores,int(100/config['prescore_load']))))
-print("  VEP : {}x".format(min(workflow.cores,int(100/config['vep_load']))))
-print("  ESM : {}x with {} threads each (memory/gpu constraints)".format(min(workflow.cores,config['esm_slots']),config['esm_threads']))
-print("  RegSeq : {}x".format(min(workflow.cores,int(100/config['regseq_load']))))
-print("  MMsplice : {}x with {} threads each (memory constraints)".format(min(workflow.cores,int(100/config['mms_load'])),config['mms_threads']))
-print("  Annotate : {}x".format(min(workflow.cores,int(100/config['anno_load']))))
-print("  Impute : {}x".format(min(workflow.cores,int(100/config['impute_load']))))
-          
+   print("No gpu found")
 
+# print threading limits
+print("Task Parallelization: ")
+print("  PreScore : {}x".format(min(workflow.cores,int(100/config['prescore_cpu_load']))))
+print("  VEP : {}x with {} threads each".format(min(workflow.cores,int(100/config['vep_cpu_load'])), config['vep_cpu_threads']))
+print("  ESM : CPU : {}x with {} threads each (memory constraints)".format(min(workflow.cores,config['esm_cpu_slots']),config['esm_cpu_threads']))
+print("  ESM : GPU : {}x (gpu memory constraints)".format(config['esm_gpu_slots']))
+print("  RegSeq : {}x".format(min(workflow.cores,int(100/config['regseq_cpu_load']))))
+print("  MMsplice : {}x with {} threads each (memory constraints)".format(min(workflow.cores,int(100/config['mms_cpu_load'])),config['mms_cpu_threads']))
+print("  Annotate : {}x".format(min(workflow.cores,int(100/config['anno_cpu_load']))))
+print("  Impute : {}x".format(min(workflow.cores,int(100/config['impute_cpu_load']))))
+          
+# flush output before starting workflow
+print("Starting workflow",flush=True)
 
 
 ## allowed scattering 
@@ -121,7 +138,7 @@ rule prepare:
         threads=workflow.cores,
     resources:
         # < 1GB of memory
-        load=1,
+        cpu_load=1,
     shell:
         """
         mkdir -p {wildcards.file}_splits/ 2>> {log}
@@ -143,7 +160,11 @@ rule prepare:
         # strip padding zeros in the file names 
         for f in {wildcards.file}_splits/chunk_*.prepared.vcf
         do
-            mv -n "$f" "$(echo "$f" | sed -E 's/(chunk_)0*([1-9][0-9]*)(-of-{params.threads}\\.prepared\\.vcf)/\\1\\2\\3/')"
+            target=$(echo "$f" | sed -E 's/(chunk_)0*([1-9][0-9]*)(-of-{params.threads}\\.prepared\\.vcf)/\\1\\2\\3/')
+            if [ "$f" != "$target" ]; then
+                mv -n "$f" "$target"
+            fi
+            
         done
         """
 
@@ -163,7 +184,7 @@ checkpoint prescore:
         cadd=os.environ["CADD"],
     resources:
         # < 1GB of memory
-        load=int(config['prescore_load']),
+        cpu_load=int(config['prescore_cpu_load']),
     shell:
         """
         # Prescoring
@@ -206,9 +227,12 @@ rule annotation_vep:
         cadd=os.environ["CADD"],
         genome_build=config["GenomeBuild"],
         ensembl_db=config["EnsemblDB"],
+        threads=config['vep_cpu_threads'],
     resources:
         # < 1GB of memory
-        load=int(config['vep_load']),
+        cpu_load=int(config['vep_cpu_load']),
+    threads:
+        config['vep_cpu_threads'],
     shell:
         """
         cat {input.vcf} \
@@ -217,6 +241,7 @@ rule annotation_vep:
             --db_version={params.ensembl_db} --assembly {params.genome_build} \
             --format vcf --regulatory --sift b --polyphen b --per_gene --ccds --domains \
             --numbers --canonical --total_length --vcf --force_overwrite --output_file STDOUT \
+            --fork {params.threads} \
         | bgzip -c > {output} 2> {log}
         """
 
@@ -240,9 +265,10 @@ rule annotate_esm:
     log:
         "{file}.chunk_{chunk}.annotate_esm.log",
     resources:
-        load=int(config['esm_load']),
+        cpu_load=int(config['esm_cpu_load']),
+        gpu_load=int(config['esm_gpu_load']),
     threads: 
-        config['esm_threads'],
+        config['esm_cpu_threads'],
     params:
         cadd=os.environ["CADD"],
         models=["--model %s " % model for model in config["ESMmodels"]],
@@ -254,7 +280,6 @@ rule annotate_esm:
         model_directory=`dirname {input.models[0]}`;
         model_directory=`dirname $model_directory`;
 
-        
         python {params.cadd}/src/scripts/lib/tools/esmScore/esmScore_missense_av_fast.py \
         --input {input.vcf} \
         --transcripts {input.transcripts} \
@@ -294,7 +319,7 @@ rule annotate_regseq:
         cadd=os.environ["CADD"],
     resources:
         # roughly 4GB of memory
-        load=int(config['regseq_load']),
+        cpu_load=int(config['regseq_cpu_load']),
     shell:
         """
         python {params.cadd}/src/scripts/lib/tools/regulatorySequence/predictVariants.py \
@@ -322,11 +347,11 @@ rule annotate_mmsplice:
         "{file}.chunk_{chunk}.annotate_mmsplice.log",
     params:
         cadd=os.environ["CADD"],
-        mms_threads=config['mms_threads']  # Assigning the number of threads for mmsplice
+        mms_threads=config['mms_cpu_threads']  # Assigning the number of threads for mmsplice
     resources:
-        load=int(config['mms_load']),
+        cpu_load=int(config['mms_cpu_load']),
     threads: 
-        config['mms_threads'],
+        config['mms_cpu_threads'],
     shell:
         """
         # mmsplice crashes on empty vcf files: evaluate nr of variants left
@@ -341,7 +366,7 @@ rule annotate_mmsplice:
             # set parallelism for tensorflow : 
             export OMP_NUM_THREADS={params.mms_threads}
             export TF_NUM_INTRAOP_THREADS={params.mms_threads}
-            export TF_NUM_INTEROP_THREADS=1
+            export TF_NUM_INTEROP_THREADS={params.mms_threads}
             # annotate
             tabix -p vcf {input.vcf} &> {log};
             KERAS_BACKEND=tensorflow python {params.cadd}/src/scripts/lib/tools/MMSplice.py -i {input.vcf} \
@@ -367,7 +392,7 @@ rule annotation:
     params:
         cadd=os.environ["CADD"],
     resources:
-        load=int(config['anno_load']),
+        cpu_load=int(config['anno_cpu_load']),
     shell:
         """
         zcat {input.vcf} \
@@ -390,7 +415,7 @@ rule imputation:
     params:
         cadd=os.environ["CADD"],
     resources:
-        load=int(config['impute_load']),
+        cpu_load=int(config['impute_cpu_load']),
     shell:
         """
         zcat {input.tsv} \
@@ -416,7 +441,7 @@ rule score:
         use_anno=config["Annotation"],
         columns=config["Columns"],
     resources:
-        load=config['score_load'],
+        cpu_load=config['score_cpu_load'],
     shell:
         """
         python {params.cadd}/src/scripts/predictSKmodel.py \

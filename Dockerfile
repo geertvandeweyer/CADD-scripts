@@ -43,16 +43,25 @@ RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/downloa
     echo ". /opt/conda/etc/profile.d/conda.sh && conda activate base" >> /etc/skel/.bashrc && \
     echo ". /opt/conda/etc/profile.d/conda.sh && conda activate base" >> ~/.bashrc
 
-# install cadd
+# install cadd & run test file to generate all envs
 RUN cd /opt && \
-    git clone --branch Fix/max_memory https://github.com/geertvandeweyer/CADD-scripts.git && \
-    cd CADD-scripts && \
-    snakemake test/input.vcf \
-        --software-deployment-method conda \
-        --conda-create-envs-only \
-        --conda-prefix envs/conda \
-        --configfile config/config_GRCh38_v1.7.yml \
-        --snakefile Snakefile -c 1
+    git clone --branch Fix/max_memory https://github.com/geertvandeweyer/CADD-scripts.git 
+    #cd CADD-scripts && \
+    #snakemake test/input.vcf \
+    #    --software-deployment-method conda \
+    ##    --conda-create-envs-only \
+    #    --conda-prefix envs/conda \
+    #    --configfile config/config_GRCh38_v1.7.yml \
+    #    --snakefile Snakefile -c 1
 
-COPY Install_Annotations.sh /opt/CADD-scripts/Install_Annotations.sh 
+#COPY Install_Annotations.sh /opt/CADD-scripts/Install_Annotations.sh 
 RUN chmod a+x /opt/CADD-scripts/Install_Annotations.sh
+
+## some follow up instructions are needed: 
+RUN echo "WARNING: CADD-scripts installed. To use the container, the following commands are needed: "
+RUN echo "# download the annotations sources" 
+RUN echo "docker run -v /mnt/CADD_data:/opt/CADD-scripts/data my-cadd-scripts:my_version /opt/CADD-Scripts/Install_Annotations.sh /opt/CADD-scripts/data GRCh38" 
+RUN echo "# run the script on the test data to prepare all conda envs" 
+RUN echo "docker run --name prep-container -w  /opt/CADD-scripts -v /mnt/CADD_data/annotations:/opt/CADD-scripts/data/annotations -v /mnt/CADD_data/prescored:/opt/CADD-scripts/data/prescored my-cadd-scripts:my_version bash -c 'snakemake test/input.tsv.gz --resources load=100 --sdm conda --conda-prefix /opt/CADD-scripts/envs/conda --configfile /opt/CADD-scripts/config/config_GRCh38_v1.7_noanno.yml --snakefile /opt/CADD-scripts/Snakefile -c 1 ; rm -Rf /opt/CADD-scripts/test/input_splits /opt/CADD-scripts/test/input.chunk* /opt/CADD-scripts/test/input.*.log /opt/conda/pkgs/*' " 
+RUN echo "# commit the changes to the image" 
+RUN echo "docker commit prep-container my-cadd-scripts:my_version" 

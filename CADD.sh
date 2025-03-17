@@ -164,9 +164,9 @@ fi
 
 echo "Running snakemake pipeline:"
 
-# resources is added to divide total load wrt number of cores
+# resources is added to divide total load wrt number of cores & gpus
 command="snakemake $TMP_OUTFILE \
-    --resources load=100 \
+    --resources cpu_load=100 --resources gpu_load=100 \
     --sdm conda $SIGNULARITYARGS --conda-prefix $CADD/envs/conda \
     --cores $CORES --configfile $CONFIG \
     --config mem_gb=$MEMORY \
