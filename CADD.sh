@@ -16,6 +16,7 @@ where:
     -d  do not remove temporary directory for debug puroposes
     -t  specify location for temporary directory [default: /tmp/]
     -c  number of cores that snakemake is allowed to use [default: 1]
+    -M  maximum memory that snakemake is allowed to use [default: available memory]
     "
 
 unset OPTARG
@@ -31,8 +32,19 @@ SIGNULARITYARGS=""
 VERBOSE="-q"
 CORES="1"
 RM_TMP_DIR=true
-TMP_PREFIX="/tmp"
-while getopts ':ho:g:v:c:amr:qpdt:' option; do
+# set memory to available memory by default (can be lower than system memory in docker containers):
+if [[ -f "/sys/fs/cgroup/memory/memory.limit_in_bytes" ]]; then
+    MEMORY=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    MEMORY=$((MEMORY / 1024 / 1024 / 1024))
+elif [[ -f "/sys/fs/cgroup/memory.max" ]]; then
+    MEMORY=$(cat /sys/fs/cgroup/memory.max)
+    MEMORY=$((MEMORY / 1024 / 1024 / 1024))
+else
+    # if files are not available, determine in snakemake
+    MEMORY="0"
+fi
+
+while getopts ':ho:g:v:c:M:amr:qpdt:' option; do
   case "$option" in
     h) echo "$usage"
        exit
@@ -44,6 +56,8 @@ while getopts ':ho:g:v:c:amr:qpdt:' option; do
     v) VERSION=$OPTARG
        ;;
     c) CORES=$OPTARG
+       ;;
+    M) MAXMEMORY=$OPTARG
        ;;
     a) ANNOTATION=true
        ;;
@@ -150,11 +164,12 @@ fi
 
 echo "Running snakemake pipeline:"
 
-# resources is added to divide total load wrt number of cores
+# resources is added to divide total load wrt number of cores & gpus
 command="snakemake $TMP_OUTFILE \
-    --resources load=100 \
+    --resources cpu_load=100 --resources gpu_load=100 \
     --sdm conda $SIGNULARITYARGS --conda-prefix $CADD/envs/conda \
     --cores $CORES --configfile $CONFIG \
+    --config mem_gb=$MEMORY \
     --snakefile $CADD/Snakefile $VERBOSE"
 
 echo -e $command

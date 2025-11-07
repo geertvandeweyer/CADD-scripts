@@ -1,29 +1,67 @@
-FROM condaforge/mambaforge:latest
-LABEL io.github.snakemake.containerized="true"
-LABEL io.github.snakemake.conda_env_hash="cb2c51dd0ad3df620c4914840c5ef6f5570a5ffd8cfd54cec57d2ffef0a76b08"
+######################
+# aws output handler #
+######################
 
-# Step 1: Retrieve conda environments
+# includes:
+#   - the cmg modules
+#   - dependencies
 
-RUN mkdir -p /conda-envs/a4fcaaffb623ea8aef412c66280bd623
-COPY envs/environment_minimal.yml /conda-envs/a4fcaaffb623ea8aef412c66280bd623/environment.yaml
+FROM ubuntu:24.04 
 
-RUN mkdir -p /conda-envs/ef25c8d726aebbe9e0ee64fee6c3caa9
-COPY envs/esm.yml /conda-envs/ef25c8d726aebbe9e0ee64fee6c3caa9/environment.yaml
+## needed apt packages
+ARG BUILD_PACKAGES="wget git ssh bzip2 curl axel"
+# needed conda packages (only packages not in the requirements of cmg-package)
+ARG CONDA_PACKAGES="python==3.12.3 snakemake==8.16.0"
+ENV MAMBA_ROOT_PREFIX=/opt/conda/
+ENV PATH /opt/micromamba/bin:/opt/conda/bin:$PATH
+# ADD credentials on build
+ARG SSH_PRIVATE_KEY
+##  ENV SETTINGS during runtime
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+ENV PATH=/opt/conda/bin:/opt/CADD-scripts/:$PATH
+ENV DEBIAN_FRONTEND noninteractive
+ENV CADD=/opt/CADD-scripts
+SHELL ["/bin/bash", "-l", "-c"]
 
-RUN mkdir -p /conda-envs/7f88b844a05ae487b7bb6530b5e6a90c
-COPY envs/mmsplice.yml /conda-envs/7f88b844a05ae487b7bb6530b5e6a90c/environment.yaml
+# install base packages
+RUN echo "Acquire::http::Pipeline-Depth 0;" > /etc/apt/apt.conf.d/99fixbadproxy && \
+    echo "Acquire::http::No-Cache true;" >> /etc/apt/apt.conf.d/99fixbadproxy && \
+    echo "Acquire::BrokenProxy    true;" >> /etc/apt/apt.conf.d/99fixbadproxy && \
+    apt-get -y update && \
+    apt-get -y upgrade && \
+    apt-get install -y $BUILD_PACKAGES && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /conda-envs/dfc51ced08aaeb4cbd3dcd509dec0fc5
-COPY envs/regulatorySequence.yml /conda-envs/dfc51ced08aaeb4cbd3dcd509dec0fc5/environment.yaml
+# Install conda/miniforge3
+RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" && \
+    /bin/bash Miniforge3-$(uname)-$(uname -m).sh -b -p /opt/conda  && \
+    rm Miniforge3-$(uname)-$(uname -m).sh && \
+    mamba install -y -c conda-forge -c bioconda $CONDA_PACKAGES && \
+    conda clean --tarballs --index-cache --packages --yes  && \
+    conda config --set channel_priority strict && \
+    echo ". /opt/conda/etc/profile.d/conda.sh && conda activate base" >> /etc/skel/.bashrc && \
+    echo ". /opt/conda/etc/profile.d/conda.sh && conda activate base" >> ~/.bashrc
 
-RUN mkdir -p /conda-envs/89fe1049cc18768b984c476c399b7989
-COPY envs/vep.yml /conda-envs/89fe1049cc18768b984c476c399b7989/environment.yaml
+# install cadd & run test file to generate all envs
+RUN cd /opt && \
+    git clone --branch Fix/max_memory https://github.com/geertvandeweyer/CADD-scripts.git 
+    #cd CADD-scripts && \
+    #snakemake test/input.vcf \
+    #    --software-deployment-method conda \
+    ##    --conda-create-envs-only \
+    #    --conda-prefix envs/conda \
+    #    --configfile config/config_GRCh38_v1.7.yml \
+    #    --snakefile Snakefile -c 1
 
-# Step 2: Generate conda environments
+#COPY Install_Annotations.sh /opt/CADD-scripts/Install_Annotations.sh 
+RUN chmod a+x /opt/CADD-scripts/Install_Annotations.sh
 
-RUN mamba env create --prefix /conda-envs/a4fcaaffb623ea8aef412c66280bd623 --file /conda-envs/a4fcaaffb623ea8aef412c66280bd623/environment.yaml && \
-    mamba env create --prefix /conda-envs/ef25c8d726aebbe9e0ee64fee6c3caa9 --file /conda-envs/ef25c8d726aebbe9e0ee64fee6c3caa9/environment.yaml && \
-    mamba env create --prefix /conda-envs/7f88b844a05ae487b7bb6530b5e6a90c --file /conda-envs/7f88b844a05ae487b7bb6530b5e6a90c/environment.yaml && \
-    mamba env create --prefix /conda-envs/dfc51ced08aaeb4cbd3dcd509dec0fc5 --file /conda-envs/dfc51ced08aaeb4cbd3dcd509dec0fc5/environment.yaml && \
-    mamba env create --prefix /conda-envs/89fe1049cc18768b984c476c399b7989 --file /conda-envs/89fe1049cc18768b984c476c399b7989/environment.yaml && \
-    mamba clean --all -y
+## some follow up instructions are needed: 
+RUN echo "WARNING: CADD-scripts installed. To use the container, the following commands are needed: "
+RUN echo "# download the annotations sources" 
+RUN echo "docker run -v /mnt/CADD_data:/opt/CADD-scripts/data my-cadd-scripts:my_version /opt/CADD-Scripts/Install_Annotations.sh /opt/CADD-scripts/data GRCh38" 
+RUN echo "# run the script on the test data to prepare all conda envs" 
+RUN echo "docker run --name prep-container -w  /opt/CADD-scripts -v /mnt/CADD_data/annotations:/opt/CADD-scripts/data/annotations -v /mnt/CADD_data/prescored:/opt/CADD-scripts/data/prescored my-cadd-scripts:my_version bash -c 'snakemake test/input.tsv.gz --resources load=100 --sdm conda --conda-prefix /opt/CADD-scripts/envs/conda --configfile /opt/CADD-scripts/config/config_GRCh38_v1.7_noanno.yml --snakefile /opt/CADD-scripts/Snakefile -c 1 ; rm -Rf /opt/CADD-scripts/test/input_splits /opt/CADD-scripts/test/input.chunk* /opt/CADD-scripts/test/input.*.log /opt/conda/pkgs/*' " 
+RUN echo "# commit the changes to the image" 
+RUN echo "docker commit prep-container my-cadd-scripts:my_version" 
