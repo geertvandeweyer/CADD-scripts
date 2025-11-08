@@ -144,7 +144,7 @@ rule prepare:
         mkdir -p {wildcards.file}_splits/ 2>> {log}
         cat {input.vcf} \
         | python {params.cadd}/src/scripts/VCF2vepVCF.py \
-        | grep -v '^#' || true \
+        | (grep -v '^#' || true) \
         | sed 's/^chr//' \
         | sort -k1,1 -k2,2n -k4,4 -k5,5 \
         | uniq > {wildcards.file}_splits/full.vcf 2> {log} 
